@@ -2,11 +2,22 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Plus, Minus, LogOut, BookOpen, History as HistoryIcon, Loader2, Check, Pencil } from "lucide-react";
+import { Plus, Minus, LogOut, BookOpen, History as HistoryIcon, Loader2, Check, Pencil, RotateCcw } from "lucide-react";
 import api from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "../components/ui/alert-dialog";
 import AnimatedCounter from "../components/AnimatedCounter";
 
 function formatDate(d) {
@@ -63,6 +74,16 @@ export default function Dashboard({ state, refresh }) {
       refresh();
     } catch (e) {
       toast.error("Failed to save task");
+    }
+  };
+
+  const resetToday = async () => {
+    try {
+      await api.post("/reset-today");
+      toast("Today's stats reset", { description: "Added and Done set to 0. Counter reverted." });
+      await refresh();
+    } catch (e) {
+      toast.error("Failed to reset");
     }
   };
 
@@ -183,7 +204,40 @@ export default function Dashboard({ state, refresh }) {
             <div className="slab rounded-2xl p-6" data-testid="stats-panel">
               <div className="flex items-center justify-between mb-5">
                 <h3 className="font-heading text-xl font-semibold">Stats</h3>
-                <span className="text-xs font-mono text-muted-foreground">{today.date}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-muted-foreground">{today.date}</span>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <button
+                        data-testid="reset-today-btn"
+                        aria-label="Reset today's stats"
+                        disabled={today.added === 0 && today.done === 0}
+                        className="text-muted-foreground hover:text-[hsl(var(--terracotta))] disabled:opacity-30 disabled:hover:text-muted-foreground p-1.5 rounded-md hover:bg-white/5 transition-colors"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="slab border-border">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="font-heading">Reset today's stats?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-muted-foreground">
+                          This sets today's <span className="text-[hsl(var(--terracotta))]">Added</span> and{" "}
+                          <span className="text-[hsl(var(--sage))]">Done</span> back to 0, and reverts your main counter by the net change from today. History for other days stays untouched.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel data-testid="reset-cancel-btn" className="rounded-xl">Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          data-testid="reset-confirm-btn"
+                          onClick={resetToday}
+                          className="rounded-xl bg-[hsl(var(--terracotta))] text-[#1A0F0C] hover:bg-[hsl(var(--terracotta)/0.9)]"
+                        >
+                          Reset
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               </div>
               <div className="divide-y divide-border/60">
                 <StatRow label="Added" value={today.added} testid="stat-added" tone="terracotta" prefix="+" />

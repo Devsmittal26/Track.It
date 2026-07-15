@@ -241,6 +241,21 @@ async def apply_action(payload: DayLogAction, user: dict = Depends(get_current_u
     await save_user_state(user["id"], {"counter": new_counter})
     return await get_state(user)
 
+@api_router.post("/reset-today")
+async def reset_today(user: dict = Depends(get_current_user)):
+    """Reset today's added and done to 0, and revert the counter by today's net delta."""
+    today = today_str()
+    day = await get_or_create_day(user["id"], today)
+    net_delta = day.get("added", 0) - day.get("done", 0)
+    st = await get_user_state(user["id"])
+    new_counter = max(0, st.get("counter", 0) - net_delta)
+    await db.day_logs.update_one(
+        {"user_id": user["id"], "date": today},
+        {"$set": {"added": 0, "done": 0}},
+    )
+    await save_user_state(user["id"], {"counter": new_counter})
+    return await get_state(user)
+
 @api_router.post("/task")
 async def set_task(payload: TaskIn, user: dict = Depends(get_current_user)):
     await save_user_state(user["id"], {"current_task": payload.text})
