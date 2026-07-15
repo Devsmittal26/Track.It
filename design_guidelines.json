@@ -1,0 +1,90 @@
+{
+  "theme_strategy": {
+    "theme_mode": "dark",
+    "rationale": "A 'Tactical Study' aesthetic based on Archetype 2 (Performance Pro) combined with Archetype 1 (Organic/Earthy) dark variants. The deep background reduces eye strain for students, while the muted, tactile accent colors (Sage, Terracotta, Bone White) make the environment feel grounded, focused, and non-corporate. This creates a 'Midnight Library' vibe perfect for intense study sessions.",
+    "forbidden_colors": ["#7351B7", "#1B93A4", "#000000", "#808080"]
+  },
+  "typography": {
+    "rules": "The Anti-Default Rule applies. Avoid Inter, Roboto, Open Sans. Ensure tight letter spacing on large numbers.",
+    "heading_font": "Cabinet Grotesk",
+    "body_font": "Manrope",
+    "font_setup": "Import via Google Fonts in index.css: @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&display=swap'); For Cabinet Grotesk: Use Fontshare API or a similar wide geometric sans like 'Outfit' if Cabinet Grotesk is unavailable (@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;800;900&display=swap')).",
+    "hierarchy": {
+      "h1_counter": "text-5xl sm:text-6xl font-black tracking-tighter leading-none",
+      "h2": "text-3xl sm:text-4xl font-bold tracking-tight",
+      "h3": "text-xl sm:text-2xl font-semibold",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-base leading-relaxed",
+      "labels": "text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground"
+    }
+  },
+  "colors": {
+    "background": "#0A0B0E",
+    "foreground": "#F4F0EA",
+    "card": "#121419",
+    "border": "#22252D",
+    "primary": "#F4F0EA",
+    "primary_foreground": "#0A0B0E",
+    "actions": {
+      "done_decrement": "#88A090",
+      "add_increment": "#C87462"
+    },
+    "muted": "#1C1F26",
+    "muted_foreground": "#8E94A3",
+    "css_variables_instruction": "Update the dark mode root variables in index.css to match this Midnight Library palette. Tint all grays with a subtle blue/slate hue. Use these custom action colors for the specific Add/Done buttons."
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous Spacing & High Density Grid (Mode B). The layout must feel deeply functional but visually striking due to deliberate asymmetry.",
+    "container_padding": "p-6 sm:p-8 lg:p-12",
+    "grid_system": "grid-cols-1 md:grid-cols-12 gap-6 lg:gap-8",
+    "sections": {
+      "hero_counter": "col-span-full md:col-span-8 row-span-2 min-h-[40vh] flex flex-col items-center justify-center bg-card rounded-2xl border border-border/50 relative overflow-hidden. Use massive internal padding.",
+      "stats_panel": "col-span-full md:col-span-4 row-span-1 flex flex-col gap-4",
+      "current_task": "col-span-full md:col-span-4 row-span-1 p-6 bg-card rounded-2xl border border-border/50",
+      "history_charts": "col-span-full mt-8 p-6 bg-card rounded-2xl border border-border/50"
+    }
+  },
+  "surfaces_and_textures": {
+    "cards": "Neumorphic / Tactile Variant. Mix soft ambient shadow (shadow-2xl shadow-black/40) with sharp 1px inner top borders (border-t-white/5) to make cards feel like physical slabs of dark metal/slate.",
+    "header": "Crystal Glassmorphism: sticky top-0 z-50 backdrop-blur-xl bg-[#0A0B0E]/70 border-b border-white/5. NEVER purely transparent.",
+    "textures": "Apply a subtle noise/grain SVG overlay fixed to the background with opacity-20 to kill the digital flatness."
+  },
+  "motion_and_interactions": {
+    "counter_animation": "CRITICAL: The core emotional moment is the number changing. Use Framer Motion. Wrap the number in <AnimatePresence mode='popLayout'> and slide it up/down (y: -20, opacity: 0) on change.",
+    "hover_states": "All buttons must explicitly set hover text color (e.g., hover:bg-white/10 hover:text-white). Buttons should lift slightly (-translate-y-0.5) and increase shadow.",
+    "focus_states": "High contrast focus rings: focus:ring-2 focus:ring-primary focus:outline-none.",
+    "reduced_motion": "Ensure all animations respect prefers-reduced-motion media query."
+  },
+  "components": {
+    "buttons": "Pill-shaped (rounded-full) or sharp with 4px radius (rounded-sm) depending on the grid strictness. Let's use `rounded-xl` for a tactile, modern study tool feel. The '- Done' button should use the Sage Green color, and '+ Add' should use Terracotta.",
+    "inputs": "Current Task input should be a seamless, inline-editable field. It shouldn't look like a standard Vercel input box. It should look like a blank notebook line or a transparent field with a subtle bottom border on focus.",
+    "charts": "Use Recharts. Line chart for 'Overall Backlog' over time. Bar chart for 'Lectures Done per Day'. Style the charts to remove grid lines (or make them 5% opacity), use the accent colors (Sage/Terracotta) for the data marks.",
+    "toasts": "Use `sonner`. Trigger a toast whenever a lecture is marked as 'Done' with motivational micro-copy ('1 Lecture Crushed!', 'Keep the momentum!')."
+  },
+  "accessibility": {
+    "contrast": "Ensure text over the dark background meets APCA/WCAG AA standards. The muted foreground must be legible.",
+    "test_ids": "Add data-testid attributes to ALL interactive elements (e.g., data-testid='add-lecture-btn', data-testid='done-lecture-btn', data-testid='current-task-input', data-testid='main-counter').",
+    "aria": "Provide aria-labels for icon-only buttons. Hide decorative elements from screen readers."
+  },
+  "instructions_to_main_agent": [
+    "Read this JSON fully before starting implementation.",
+    "Initialize Shadcn UI and install the necessary components: card, button, input, table.",
+    "Install lucide-react for icons, framer-motion for the counter animation, recharts for history visualization, and sonner for toasts.",
+    "Create the 'UBC' Dashboard using a responsive CSS Grid.",
+    "Make the central counter the absolute focal point. Since headings are restricted to text-6xl, use text-6xl combined with scale transforms or absolute flex-grow layouts to optically maximize the number's presence without violating typographic scales.",
+    "Ensure the 'Current Task' is inline-editable, saving state dynamically.",
+    "Implement the 'Today's Stats' and Quick Actions (+ Add, - Done) alongside the main counter.",
+    "Mock the authentication flows and the backend API (use localStorage for the prototype) to store the counter, daily history, and tasks. HIGHLIGHT that it is MOCKED in your summary.",
+    "Do not use complete transparent background in header/overlays.",
+    "Inject the custom Font (Outfit/Cabinet Grotesk and Manrope) into index.css via Google Fonts or standard imports."
+  ],
+  "universal_guidelines": [
+    "Do not converge toward generic outputs. Use the defined dark mode colors (avoid default Tailwind zinc/slate).",
+    "Do not apply `transition: all`.",
+    "Do not center align the app container text-wise; left-align data and text unless it's the hero counter.",
+    "Create depth through layered design elements and subtle borders.",
+    "Use 2-3x more spacing. A cramped dashboard looks cheap.",
+    "Never use placeholder AI emojis.",
+    "Prioritize using pre-existing components from src/components/ui when applicable."
+  ]
+}
