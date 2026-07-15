@@ -193,6 +193,9 @@ class DayLogAction(BaseModel):
     amount: int = Field(default=1, ge=1)
     tag: Optional[str] = None  # subject tag
 
+class CounterSetIn(BaseModel):
+    value: int = Field(ge=0)
+
 class TaskIn(BaseModel):
     text: str
 
@@ -573,6 +576,12 @@ async def reset_today(request: Request, user: dict = Depends(get_current_user)):
         {"user_id": user["id"], "date": today, "undone": False},
         {"$set": {"undone": True}},
     )
+    return await get_state(request, user)
+
+@api_router.post("/counter/set")
+async def set_counter(payload: CounterSetIn, request: Request, user: dict = Depends(get_current_user)):
+    """Directly set the main counter. Does NOT modify today's added/done or history."""
+    await save_user_state(user["id"], {"counter": payload.value})
     return await get_state(request, user)
 
 @api_router.post("/task")

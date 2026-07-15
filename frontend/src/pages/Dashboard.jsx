@@ -150,6 +150,14 @@ export default function Dashboard({ state, refresh }) {
     } catch (_) { toast.error("Failed to save settings"); }
   };
 
+  const setCounter = async (value) => {
+    try {
+      await api.post("/counter/set", { value });
+      toast("Counter updated");
+      await refresh(); loadWeek();
+    } catch (_) { toast.error("Failed to update counter"); }
+  };
+
   useKeyboardShortcuts([
     { key: "a", handler: () => applyAction("add") },
     { key: "d", handler: () => setDoneDialogOpen(true) },
@@ -204,6 +212,7 @@ export default function Dashboard({ state, refresh }) {
             setAmount={setAmount}
             onAdd={() => applyAction("add")}
             onDone={() => setDoneDialogOpen(true)}
+            onSetCounter={setCounter}
             busy={busy}
           />
 
