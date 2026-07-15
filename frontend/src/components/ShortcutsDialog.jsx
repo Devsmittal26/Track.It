@@ -6,7 +6,7 @@ import {
 export default function ShortcutsDialog({ open, onOpenChange }) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="slab border-border">
+      <AlertDialogContent className="slab border-border" data-testid="shortcuts-dialog">
         <AlertDialogHeader>
           <AlertDialogTitle className="font-heading">Keyboard shortcuts</AlertDialogTitle>
           <AlertDialogDescription>Move faster.</AlertDialogDescription>
