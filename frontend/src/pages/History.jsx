@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
-import { Link } from "react-router-dom";
-import { ChevronLeft, BookOpen, TrendingDown, TrendingUp, Pencil, Download, Tag } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
+import { ChevronLeft, TrendingDown, TrendingUp, Pencil, Download, Tag } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   BarChart, Bar, CartesianGrid, PieChart, Pie, Cell,
@@ -22,28 +22,33 @@ function fmtLong(d) {
 const TAG_COLORS = ["hsl(138 14% 59%)", "hsl(12 51% 59%)", "hsl(36 33% 94%)", "hsl(222 10% 60%)", "hsl(45 40% 55%)", "hsl(200 30% 50%)"];
 
 export default function History() {
+  const { trackerId } = useParams();
+  const [tracker, setTracker] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [tagBreakdown, setTagBreakdown] = useState([]);
 
   const load = useCallback(async () => {
+    if (!trackerId) return;
     setLoading(true);
     try {
-      const [{ data: hist }, { data: tags }] = await Promise.all([
-        api.get("/history?days=90"),
-        api.get("/tags/summary?days=30"),
+      const [{ data: t }, { data: hist }, { data: tags }] = await Promise.all([
+        api.get(`/trackers/${trackerId}`),
+        api.get(`/trackers/${trackerId}/history?days=90`),
+        api.get(`/trackers/${trackerId}/tags/summary?days=30`),
       ]);
+      setTracker(t);
       setItems(hist.items || []);
       setTagBreakdown(tags.items || []);
     } catch (_) {} finally { setLoading(false); }
-  }, []);
+  }, [trackerId]);
 
   useEffect(() => { load(); }, [load]);
 
   const saveDay = async (date, patch) => {
     try {
-      await api.post("/day", { date, ...patch });
+      await api.post(`/trackers/${trackerId}/day`, { date, ...patch });
       toast("Day updated");
       load();
     } catch (_) { toast.error("Failed to save"); }
@@ -51,49 +56,48 @@ export default function History() {
 
   const downloadCsv = async () => {
     try {
-      const res = await api.get("/history/csv", { responseType: "blob" });
+      const res = await api.get(`/trackers/${trackerId}/history/csv`, { responseType: "blob" });
       const url = URL.createObjectURL(new Blob([res.data], { type: "text/csv" }));
       const a = document.createElement("a");
-      a.href = url; a.download = "ubc_history.csv";
+      a.href = url; a.download = `trackit_${(tracker?.name || "history").replace(/\s+/g, "_").toLowerCase()}.csv`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     } catch (_) { toast.error("Export failed"); }
   };
 
   const chartData = [...items].reverse().map((it) => ({ ...it, label: fmt(it.date) }));
-  const totals = items.reduce((acc, it) => {
-    acc.added += it.added; acc.done += it.done; return acc;
-  }, { added: 0, done: 0 });
+  const totals = items.reduce((acc, it) => { acc.added += it.added; acc.done += it.done; return acc; }, { added: 0, done: 0 });
   const net = totals.added - totals.done;
 
   return (
     <div className="min-h-screen grain relative">
       <header className="sticky top-0 z-40 backdrop-blur-xl bg-[hsl(var(--background)/0.75)] border-b border-white/5">
         <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <BookOpen className="h-5 w-5 text-[hsl(var(--sage))]" />
-            <div className="font-heading font-bold tracking-widest">UBC</div>
-            <span className="hidden sm:inline text-xs text-muted-foreground pl-3 border-l border-border">History</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" data-testid="export-csv-btn" onClick={downloadCsv}
-              className="rounded-xl gap-2 hover:bg-white/5 hover:text-white">
-              <Download className="h-4 w-4" /> <span className="hidden sm:inline">Export CSV</span>
-            </Button>
-            <Link to="/" data-testid="nav-back-link">
-              <Button variant="ghost" size="sm" className="rounded-xl gap-2 hover:bg-white/5 hover:text-white">
-                <ChevronLeft className="h-4 w-4" /> Dashboard
-              </Button>
+          <div className="flex items-center gap-3 min-w-0">
+            <Link to={`/t/${trackerId}`} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+              data-testid="nav-back-link">
+              <ChevronLeft className="h-4 w-4" />
+              <div className="w-6 h-6 rounded-md bg-[hsl(var(--sage))] flex items-center justify-center text-[hsl(var(--btn-done-fg))] font-black text-xs">T</div>
+              <div className="font-heading font-bold tracking-widest">Track.It</div>
             </Link>
+            {tracker?.name && (
+              <span className="hidden sm:inline text-sm text-foreground/80 pl-3 border-l border-border truncate max-w-[280px]">
+                {tracker.name} · History
+              </span>
+            )}
           </div>
+          <Button variant="ghost" size="sm" data-testid="export-csv-btn" onClick={downloadCsv}
+            className="rounded-xl gap-2 hover:bg-white/5 hover:text-white">
+            <Download className="h-4 w-4" /> <span className="hidden sm:inline">Export CSV</span>
+          </Button>
         </div>
       </header>
 
       <main className="relative z-10 max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 py-8 lg:py-12">
         <div className="mb-8">
-          <div className="font-heading text-xs uppercase tracking-[0.3em] text-muted-foreground">Log</div>
+          <div className="font-heading text-xs uppercase tracking-[0.3em] text-muted-foreground">Log · {tracker?.name}</div>
           <h1 className="mt-1 font-heading text-4xl sm:text-5xl font-black tracking-tighter leading-none">
-            Your backlog, day by day.
+            Day by day.
           </h1>
         </div>
 
@@ -107,7 +111,7 @@ export default function History() {
 
         <section className="slab rounded-2xl p-6 mb-8">
           <div className="mb-5 flex items-center justify-between">
-            <h2 className="font-heading text-2xl font-semibold">Backlog curve</h2>
+            <h2 className="font-heading text-2xl font-semibold">Counter curve</h2>
             <span className="text-xs text-muted-foreground font-mono">counter over time</span>
           </div>
           <div className="h-72" data-testid="counter-chart">

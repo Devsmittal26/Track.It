@@ -1,24 +1,22 @@
-import { useEffect, useState, useCallback } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import "@/App.css";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
-import api from "@/lib/api";
+import Login from "@/pages/Login";
+import Register from "@/pages/Register";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
+import Home from "@/pages/Home";
+import Dashboard from "@/pages/Dashboard";
+import History from "@/pages/History";
+import { Loader2 } from "lucide-react";
 
-// Restore theme on first paint (before auth loads)
 try {
   const t = localStorage.getItem("ubc_theme");
   if (t) document.documentElement.dataset.theme = t;
 } catch (_) { /* ignore */ }
 
-import Login from "@/pages/Login";
-import Register from "@/pages/Register";
-import ForgotPassword from "@/pages/ForgotPassword";
-import ResetPassword from "@/pages/ResetPassword";
-import Onboarding from "@/pages/Onboarding";
-import Dashboard from "@/pages/Dashboard";
-import History from "@/pages/History";
-import { Loader2 } from "lucide-react";
+document.title = "Track.It — count what matters";
 
 function CheckingScreen() {
   return (
@@ -35,43 +33,6 @@ function Protected({ children }) {
   return children;
 }
 
-function AppShell() {
-  const { user } = useAuth();
-  const [state, setState] = useState(null);
-  const [loadingState, setLoadingState] = useState(false);
-
-  const refresh = useCallback(async () => {
-    if (!user || !user.id) return;
-    setLoadingState(true);
-    try {
-      const { data } = await api.get("/state");
-      setState(data);
-    } finally {
-      setLoadingState(false);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (user && user.id) refresh();
-  }, [user, refresh]);
-
-  if (user === null) return <CheckingScreen />;
-  if (user === false) return <Navigate to="/login" replace />;
-
-  if (!state) return <CheckingScreen />;
-  if (!state.onboarded) return <Onboarding onDone={refresh} />;
-
-  return <Dashboard state={state} refresh={refresh} />;
-}
-
-function HistoryProtected() {
-  return (
-    <Protected>
-      <History />
-    </Protected>
-  );
-}
-
 function App() {
   return (
     <div className="App">
@@ -82,8 +43,9 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/history" element={<HistoryProtected />} />
-            <Route path="/" element={<AppShell />} />
+            <Route path="/" element={<Protected><Home /></Protected>} />
+            <Route path="/t/:trackerId" element={<Protected><Dashboard /></Protected>} />
+            <Route path="/t/:trackerId/history" element={<Protected><History /></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
@@ -91,9 +53,9 @@ function App() {
           position="bottom-right"
           toastOptions={{
             style: {
-              background: "#121419",
-              color: "#F4F0EA",
-              border: "1px solid #22252D",
+              background: "hsl(var(--card))",
+              color: "hsl(var(--foreground))",
+              border: "1px solid hsl(var(--border))",
               fontFamily: "Manrope",
             },
           }}

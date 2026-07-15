@@ -6,32 +6,33 @@ import { Checkbox } from "./ui/checkbox";
 import api from "../lib/api";
 import { toast } from "sonner";
 
-export default function TaskChecklistCard() {
+export default function TaskChecklistCard({ trackerId }) {
   const [tasks, setTasks] = useState([]);
   const [newTask, setNewTask] = useState("");
 
   const load = useCallback(async () => {
+    if (!trackerId) return;
     try {
-      const { data } = await api.get("/tasks");
+      const { data } = await api.get(`/trackers/${trackerId}/tasks`);
       setTasks(data.items || []);
     } catch (_) {}
-  }, []);
+  }, [trackerId]);
 
   useEffect(() => { load(); }, [load]);
 
   const add = async () => {
-    if (!newTask.trim()) return;
+    if (!newTask.trim() || !trackerId) return;
     try {
-      await api.post("/tasks", { text: newTask.trim() });
+      await api.post(`/trackers/${trackerId}/tasks`, { text: newTask.trim() });
       setNewTask(""); load();
     } catch (_) { toast.error("Failed to add task"); }
   };
   const toggle = async (t) => {
-    await api.patch(`/tasks/${t.id}`, { done: !t.done });
+    await api.patch(`/trackers/${trackerId}/tasks/${t.id}`, { done: !t.done });
     load();
   };
   const remove = async (t) => {
-    await api.delete(`/tasks/${t.id}`);
+    await api.delete(`/trackers/${trackerId}/tasks/${t.id}`);
     load();
   };
 

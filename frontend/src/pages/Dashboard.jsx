@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
 import { Flame } from "lucide-react";
@@ -14,6 +14,7 @@ import TaskChecklistCard from "../components/TaskChecklistCard";
 import DoneDialog from "../components/DoneDialog";
 import ShortcutsDialog from "../components/ShortcutsDialog";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { Loader2 } from "lucide-react";
 
 function todayLabel() {
   const now = new Date();
@@ -22,12 +23,10 @@ function todayLabel() {
     date: now.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }),
   };
 }
-
 function formatProjected(iso) {
   if (!iso) return null;
   return new Date(iso + "T00:00:00").toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
-
 function fireConfetti() {
   const end = Date.now() + 900;
   const colors = ["#88A090", "#C87462", "#F4F0EA"];
@@ -38,8 +37,11 @@ function fireConfetti() {
   })();
 }
 
-export default function Dashboard({ state, refresh }) {
+export default function Dashboard() {
   const { user, logout } = useAuth();
+  const { trackerId } = useParams();
+  const navigate = useNavigate();
+  const [state, setState] = useState(null);
   const [busy, setBusy] = useState(false);
   const [amount, setAmount] = useState(1);
   const [doneDialogOpen, setDoneDialogOpen] = useState(false);
@@ -47,9 +49,9 @@ export default function Dashboard({ state, refresh }) {
   const [weekSummary, setWeekSummary] = useState(null);
   const [presets, setPresets] = useState([]);
   const [taskEditFocus, setTaskEditFocus] = useState(0);
-  const navigate = useNavigate();
+  const [notFound, setNotFound] = useState(false);
 
-  const settings = state?.settings || { daily_goal: 5, task_mode: "single", timezone: "UTC" };
+  const settings = state?.settings || { daily_goal: 5, task_mode: "single", timezone: "UTC", theme: "midnight" };
   const taskMode = settings.task_mode || "single";
   const dailyGoal = settings.daily_goal ?? 5;
   const today = state?.today || { added: 0, done: 0, overall: 0, date: "" };
@@ -57,12 +59,23 @@ export default function Dashboard({ state, refresh }) {
   const projectedFinish = formatProjected(state?.projected_finish);
   const avg7d = state?.avg_done_7d ?? 0;
 
-  const loadWeek = useCallback(async () => {
+  const refresh = useCallback(async () => {
+    if (!trackerId) return;
     try {
-      const { data } = await api.get("/summary/week");
+      const { data } = await api.get(`/trackers/${trackerId}`);
+      setState(data);
+    } catch (e) {
+      if (e.response?.status === 404) setNotFound(true);
+    }
+  }, [trackerId]);
+
+  const loadWeek = useCallback(async () => {
+    if (!trackerId) return;
+    try {
+      const { data } = await api.get(`/trackers/${trackerId}/summary/week`);
       setWeekSummary(data);
     } catch (_) {}
-  }, []);
+  }, [trackerId]);
 
   const loadPresets = useCallback(async () => {
     try {
@@ -71,9 +84,8 @@ export default function Dashboard({ state, refresh }) {
     } catch (_) {}
   }, []);
 
-  useEffect(() => { loadWeek(); loadPresets(); }, [loadWeek, loadPresets]);
+  useEffect(() => { refresh(); loadWeek(); loadPresets(); }, [refresh, loadWeek, loadPresets]);
 
-  // Apply theme to document + remember for future unauthenticated visits
   useEffect(() => {
     const theme = settings?.theme || "midnight";
     document.documentElement.dataset.theme = theme;
@@ -87,29 +99,29 @@ export default function Dashboard({ state, refresh }) {
         label: "Undo",
         onClick: async () => {
           try {
-            await api.post("/undo");
+            await api.post(`/trackers/${trackerId}/undo`);
             toast("Undone");
             refresh(); loadWeek();
           } catch (_) { toast.error("Nothing to undo"); }
         },
       },
     });
-  }, [refresh, loadWeek]);
+  }, [trackerId, refresh, loadWeek]);
 
   const applyAction = useCallback(async (kind, opts = {}) => {
-    if (busy) return;
+    if (busy || !trackerId) return;
     setBusy(true);
     try {
       const body = { kind, amount: opts.amount ?? amount };
       if (opts.tag) body.tag = opts.tag;
-      const { data } = await api.post("/action", body);
+      const { data } = await api.post(`/trackers/${trackerId}/action`, body);
       if (kind === "done") {
-        const msgs = ["Lecture crushed.", "Keep the momentum.", "Backlog just shrank.", "Nice. Another one down."];
+        const msgs = ["Nice one.", "Keep the momentum.", "Counter just shrank.", "Another one down."];
         showUndoToast(`${msgs[Math.floor(Math.random() * msgs.length)]} −${body.amount}${opts.tag ? ` · ${opts.tag}` : ""}`);
         if (data?.milestone !== null && data?.milestone !== undefined) {
           fireConfetti();
           setTimeout(() => {
-            toast(data.milestone === 0 ? "🎉 Backlog cleared!" : `Milestone: ${data.milestone} left`, {
+            toast(data.milestone === 0 ? "🎉 Cleared!" : `Milestone: ${data.milestone} left`, {
               description: data.milestone === 0 ? "You did it." : "Keep going.",
             });
           }, 200);
@@ -117,26 +129,26 @@ export default function Dashboard({ state, refresh }) {
       } else {
         showUndoToast(`+${body.amount} added${opts.tag ? ` · ${opts.tag}` : ""}`);
       }
-      await refresh();
-      loadWeek();
+      await refresh(); loadWeek();
     } catch (_) {
       toast.error("Could not update. Try again.");
     } finally {
       setBusy(false);
     }
-  }, [busy, amount, refresh, showUndoToast, loadWeek]);
+  }, [busy, amount, trackerId, refresh, showUndoToast, loadWeek]);
 
   const undoLast = useCallback(async () => {
+    if (!trackerId) return;
     try {
-      await api.post("/undo");
+      await api.post(`/trackers/${trackerId}/undo`);
       toast("Undone");
       await refresh(); loadWeek();
     } catch (_) { toast.error("Nothing to undo"); }
-  }, [refresh, loadWeek]);
+  }, [trackerId, refresh, loadWeek]);
 
   const saveTask = async (text) => {
     try {
-      await api.post("/task", { text });
+      await api.post(`/trackers/${trackerId}/task`, { text });
       toast("Task updated");
       refresh();
     } catch (_) { toast.error("Failed to save task"); }
@@ -144,7 +156,7 @@ export default function Dashboard({ state, refresh }) {
 
   const resetToday = async () => {
     try {
-      await api.post("/reset-today");
+      await api.post(`/trackers/${trackerId}/reset-today`);
       toast("Today's stats reset");
       await refresh(); loadWeek();
     } catch (_) { toast.error("Failed to reset"); }
@@ -152,8 +164,8 @@ export default function Dashboard({ state, refresh }) {
 
   const updateSettings = async (patch) => {
     try {
-      await api.patch("/settings", patch);
-      await refresh();
+      const { data } = await api.patch("/settings", patch);
+      setState((s) => s ? { ...s, settings: data.settings } : s);
     } catch (_) { toast.error("Failed to save settings"); }
   };
 
@@ -161,14 +173,14 @@ export default function Dashboard({ state, refresh }) {
     const prev = state?.counter ?? 0;
     if (value === prev) return;
     try {
-      await api.post("/counter/set", { value });
+      await api.post(`/trackers/${trackerId}/counter/set`, { value });
       toast(`Counter set to ${value}`, {
         description: `Was ${prev} — click to undo`,
         action: {
           label: "Undo",
           onClick: async () => {
             try {
-              await api.post("/counter/set", { value: prev });
+              await api.post(`/trackers/${trackerId}/counter/set`, { value: prev });
               toast("Undone");
               await refresh(); loadWeek();
             } catch (_) { toast.error("Undo failed"); }
@@ -185,17 +197,38 @@ export default function Dashboard({ state, refresh }) {
     { key: "r", handler: () => setTaskEditFocus((n) => n + 1) },
     { key: "u", handler: () => undoLast() },
     { key: "?", handler: () => setShortcutsOpen(true) },
-    ...Array.from({ length: 9 }, (_, i) => ({
-      key: String(i + 1),
-      handler: () => setAmount(i + 1),
-    })),
+    ...Array.from({ length: 9 }, (_, i) => ({ key: String(i + 1), handler: () => setAmount(i + 1) })),
   ], !doneDialogOpen);
 
   const { day, date } = todayLabel();
 
+  if (notFound) {
+    return (
+      <div className="min-h-screen grain flex items-center justify-center px-6">
+        <div className="text-center">
+          <h1 className="font-heading text-4xl font-black tracking-tight mb-2">Tracker not found</h1>
+          <p className="text-muted-foreground mb-6">This tracker may have been deleted.</p>
+          <button onClick={() => navigate("/")}
+            className="rounded-xl h-11 px-5 bg-[hsl(var(--foreground))] text-[hsl(var(--background))] hover:bg-[hsl(var(--foreground)/0.9)] font-semibold">
+            Back to trackers
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (!state) {
+    return (
+      <div className="min-h-screen grain flex items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen grain relative">
       <DashboardHeader
+        trackerName={state.name}
+        trackerId={trackerId}
         settings={settings}
         onUpdateSettings={updateSettings}
         onUndo={undoLast}
@@ -242,10 +275,10 @@ export default function Dashboard({ state, refresh }) {
             <WeekRecapCard summary={weekSummary} dailyGoal={dailyGoal} />
             {taskMode === "single"
               ? <CurrentTaskCard key={taskEditFocus} value={state?.current_task || ""} onSave={saveTask} autoFocusOnMount={taskEditFocus > 0} />
-              : <TaskChecklistCard />
+              : <TaskChecklistCard trackerId={trackerId} />
             }
             <div className="text-right text-xs text-muted-foreground">
-              Hello, <span className="text-foreground/90" data-testid="user-name">{user?.name || user?.email}</span>
+              Hello, <span className="font-semibold text-foreground" data-testid="user-name">{user?.name || user?.email}</span>
             </div>
           </aside>
         </div>
