@@ -20,6 +20,8 @@ import uuid
 import secrets
 import io
 import csv
+import asyncio
+import resend
 
 # -----------------------------------------------------------------------------
 # Setup
@@ -35,6 +37,71 @@ def get_jwt_secret() -> str:
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
+
+# -----------------------------------------------------------------------------
+# Email (Resend)
+# -----------------------------------------------------------------------------
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "UBC <onboarding@resend.dev>")
+APP_URL = os.environ.get("APP_URL", "").rstrip("/")
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
+
+def _reset_email_html(name: str, link: str) -> str:
+    display = name or "there"
+    return f"""
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#0A0B0E;font-family:Arial,Helvetica,sans-serif;color:#F4F0EA;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0A0B0E;padding:40px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#121419;border:1px solid #22252D;border-radius:16px;padding:40px;">
+            <tr><td>
+              <div style="font-size:12px;letter-spacing:4px;text-transform:uppercase;color:#8E94A3;">UBC</div>
+              <h1 style="margin:12px 0 8px 0;font-size:28px;font-weight:900;color:#F4F0EA;letter-spacing:-1px;">Reset your password</h1>
+              <p style="margin:0 0 24px 0;color:#8E94A3;font-size:15px;line-height:1.6;">
+                Hi {display}, we got a request to reset your UBC password. Click the button below to choose a new one. This link expires in 1 hour.
+              </p>
+              <table role="presentation" cellpadding="0" cellspacing="0">
+                <tr><td style="border-radius:12px;background:#88A090;">
+                  <a href="{link}" style="display:inline-block;padding:14px 28px;color:#0D1410;font-weight:700;text-decoration:none;font-size:15px;border-radius:12px;">Reset password</a>
+                </td></tr>
+              </table>
+              <p style="margin:28px 0 0 0;color:#8E94A3;font-size:12px;line-height:1.6;">
+                If the button doesn't work, paste this link into your browser:<br/>
+                <a href="{link}" style="color:#88A090;word-break:break-all;">{link}</a>
+              </p>
+              <p style="margin:24px 0 0 0;color:#8E94A3;font-size:12px;">
+                Didn't request this? You can safely ignore this email — your password won't change.
+              </p>
+            </td></tr>
+          </table>
+          <div style="margin-top:16px;color:#8E94A3;font-size:11px;letter-spacing:2px;text-transform:uppercase;">UBC · your backlog, tamed</div>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
+
+async def send_reset_email(to_email: str, name: str, link: str) -> bool:
+    if not RESEND_API_KEY:
+        logging.getLogger(__name__).warning("RESEND_API_KEY not set — skipping email send")
+        return False
+    params = {
+        "from": SENDER_EMAIL,
+        "to": [to_email],
+        "subject": "Reset your UBC password",
+        "html": _reset_email_html(name, link),
+    }
+    try:
+        result = await asyncio.to_thread(resend.Emails.send, params)
+        logging.getLogger(__name__).info(f"Resend email sent: {result}")
+        return True
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Resend email failed: {e}")
+        return False
 
 # -----------------------------------------------------------------------------
 # Auth utilities
@@ -299,12 +366,18 @@ async def forgot_password(payload: ForgotPasswordIn):
             "used": False,
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
-        frontend = os.environ.get("FRONTEND_URL", "")
-        reset_link = f"{frontend}/reset-password?token={token}" if frontend else f"/reset-password?token={token}"
-        # Log for dev — in prod, send via email service
+        base = APP_URL or os.environ.get("FRONTEND_URL", "")
+        reset_link = f"{base}/reset-password?token={token}" if base else f"/reset-password?token={token}"
+        # Fire-and-forget email send
+        email_sent = await send_reset_email(email, user.get("name", ""), reset_link)
         logging.getLogger(__name__).info(f"[UBC] Password reset link for {email}: {reset_link}")
-        return {"ok": True, "reset_link": reset_link, "message": "If an account exists, a reset link has been generated (see server logs)."}
-    return {"ok": True, "message": "If an account exists, a reset link has been generated."}
+        return {
+            "ok": True,
+            "email_sent": email_sent,
+            "message": "If an account exists, a reset link has been sent to that email." if email_sent
+                       else "Reset link generated. Email delivery is not configured — check server logs.",
+        }
+    return {"ok": True, "email_sent": False, "message": "If an account exists, a reset link has been sent."}
 
 @api_router.post("/auth/reset-password")
 async def reset_password(payload: ResetPasswordIn):
@@ -639,6 +712,60 @@ async def delete_task(task_id: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 # -----------------------------------------------------------------------------
+# Subject / tag presets
+# -----------------------------------------------------------------------------
+DEFAULT_PRESETS = ["Physics", "Chemistry", "Math", "Biology"]
+
+class TagPresetIn(BaseModel):
+    name: str
+
+async def ensure_default_presets(user_id: str) -> None:
+    existing = await db.tag_presets.count_documents({"user_id": user_id})
+    if existing == 0:
+        for name in DEFAULT_PRESETS:
+            await db.tag_presets.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "name": name,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+@api_router.get("/tag-presets")
+async def list_tag_presets(user: dict = Depends(get_current_user)):
+    await ensure_default_presets(user["id"])
+    cursor = db.tag_presets.find({"user_id": user["id"]}).sort("created_at", 1)
+    items = []
+    async for d in cursor:
+        d.pop("_id", None)
+        items.append(d)
+    return {"items": items}
+
+@api_router.post("/tag-presets")
+async def create_tag_preset(payload: TagPresetIn, user: dict = Depends(get_current_user)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Preset name required")
+    existing = await db.tag_presets.find_one({"user_id": user["id"], "name": name})
+    if existing:
+        raise HTTPException(status_code=400, detail="Preset already exists")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "name": name,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.tag_presets.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+@api_router.delete("/tag-presets/{preset_id}")
+async def delete_tag_preset(preset_id: str, user: dict = Depends(get_current_user)):
+    res = await db.tag_presets.delete_one({"id": preset_id, "user_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    return {"ok": True}
+
+# -----------------------------------------------------------------------------
 # Health
 # -----------------------------------------------------------------------------
 @api_router.get("/")
@@ -669,6 +796,7 @@ async def on_startup():
     await db.user_state.create_index("user_id", unique=True)
     await db.actions.create_index([("user_id", 1), ("created_at", -1)])
     await db.tasks.create_index([("user_id", 1), ("created_at", 1)])
+    await db.tag_presets.create_index([("user_id", 1), ("name", 1)], unique=True)
     await db.password_reset_tokens.create_index("token", unique=True)
     await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
 
