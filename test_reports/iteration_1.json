@@ -1,0 +1,27 @@
+{
+  "summary": "Full E2E smoke of UBC (Unacademy Backlog Counter). Backend curl checks and Playwright frontend flows both passed: register, login, onboard, dashboard counter/stats, add/done actions, current task edit+persist, history page (table + both charts), logout, wrong-password error, re-login persistence.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/register returns 200 with {id,email,name,token} and sets cookie",
+    "GET /api/auth/me returns 200 with authenticated user",
+    "POST /api/onboard with initial_count=176 sets counter=176 and onboarded=true",
+    "GET /api/state returns full snapshot",
+    "POST /api/action kind=add amount=3 increments counter and stat-added",
+    "POST /api/action kind=done amount=1 decrements counter and increments stat-done; overall = added-done",
+    "POST /api/task persists current_task",
+    "GET /api/history?days=7 returns today's row",
+    "Frontend /register flow -> onboarding -> dashboard (counter=176)",
+    "Add 1 -> counter 177, added=+1; Done 1 -> counter 176, done=-1, overall=0; Add 3 -> counter 179, added=+4",
+    "Current task edit + save -> persists across page reload",
+    "History page loads, history-table has rows, counter-chart and throughput-chart render",
+    "Logout redirects to /login and clears session",
+    "Wrong password shows login-error: 'Invalid email or password'",
+    "Re-login persists counter (178) and task ('Physics Chapter 5')"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": "On dashboard, when current_task is empty the Task section auto-renders in edit mode (input visible immediately) rather than showing current-task-display first; not a bug, but test scripts should probe input visibility before clicking edit-task-btn. Overall stat shows sign prefix (e.g. '+3','-1') which is cosmetic and expected."
+}

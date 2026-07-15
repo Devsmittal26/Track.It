@@ -1,54 +1,93 @@
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "sonner";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import api from "@/lib/api";
+import Login from "@/pages/Login";
+import Register from "@/pages/Register";
+import Onboarding from "@/pages/Onboarding";
+import Dashboard from "@/pages/Dashboard";
+import History from "@/pages/History";
+import { Loader2 } from "lucide-react";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
+function CheckingScreen() {
   return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
+    <div className="min-h-screen grain flex items-center justify-center">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
     </div>
   );
-};
+}
+
+function Protected({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <CheckingScreen />;
+  if (user === false) return <Navigate to="/login" replace />;
+  return children;
+}
+
+function AppShell() {
+  const { user } = useAuth();
+  const [state, setState] = useState(null);
+  const [loadingState, setLoadingState] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!user || !user.id) return;
+    setLoadingState(true);
+    try {
+      const { data } = await api.get("/state");
+      setState(data);
+    } finally {
+      setLoadingState(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user && user.id) refresh();
+  }, [user, refresh]);
+
+  if (user === null) return <CheckingScreen />;
+  if (user === false) return <Navigate to="/login" replace />;
+
+  if (!state) return <CheckingScreen />;
+  if (!state.onboarded) return <Onboarding onDone={refresh} />;
+
+  return <Dashboard state={state} refresh={refresh} />;
+}
+
+function HistoryProtected() {
+  return (
+    <Protected>
+      <History />
+    </Protected>
+  );
+}
 
 function App() {
   return (
     <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/history" element={<HistoryProtected />} />
+            <Route path="/" element={<AppShell />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: "#121419",
+              color: "#F4F0EA",
+              border: "1px solid #22252D",
+              fontFamily: "Manrope",
+            },
+          }}
+        />
+      </AuthProvider>
     </div>
   );
 }
