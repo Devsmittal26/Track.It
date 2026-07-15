@@ -471,7 +471,6 @@ async def recent_actions(user: dict = Depends(get_current_user), limit: int = 10
 
 @api_router.get("/tags/summary")
 async def tags_summary(user: dict = Depends(get_current_user), days: int = 30):
-    tz = get_tz  # tz not used here; aggregate purely by date string
     cutoff = (datetime.now(timezone.utc).date() - timedelta(days=days)).isoformat()
     pipeline = [
         {"$match": {"user_id": user["id"], "undone": False, "kind": "done", "date": {"$gte": cutoff}, "tag": {"$ne": None}}},

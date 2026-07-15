@@ -1,63 +1,63 @@
 # UBC — Unacademy Backlog Counter
 
 ## Original Problem Statement
-User manages a whiteboard tracking remaining Unacademy lectures. Wants a digital, aesthetic, and convenient website version with:
-- A live counter of remaining lectures (starts at 176 or user-defined)
-- Daily +/- adjustments (added = new lectures scheduled today, done = lectures watched today, overall = net change)
-- A "current task" section
-- History view
+Digital replacement for a whiteboard tracking remaining Unacademy lectures. Live counter, daily +/- adjustments, current task, history.
 
 ## User Choices
-- Onboarding: web asks user how many lectures are in backlog
-- Auth: simple email + password login (JWT-based custom auth)
-- History: keep record of daily changes (chart + table)
-- Single current task for now
-- Aesthetic: design agent decides — chose "Midnight Library" (dark, warm off-white, Sage + Terracotta accents, Outfit + Manrope fonts)
+- Onboarding asks initial backlog count
+- JWT email+password auth
+- History with charts + table
+- Single current task by default (multi-task mode added later)
+- "Midnight Library" aesthetic — Outfit + Manrope + JetBrains Mono, Sage + Terracotta accents
 
 ## Architecture
-- **Backend**: FastAPI + MongoDB
-  - `/api/auth/register|login|logout|me` — JWT via httpOnly cookie + Bearer fallback
-  - `/api/state` — snapshot: counter, onboarded, current_task, today's stats
-  - `/api/onboard` — set initial counter
-  - `/api/action` — kind=add|done, amount → mutates counter + today's day_log
-  - `/api/task` — save current task
-  - `/api/history?days=N` — daily log with computed running counter
-- **Frontend**: React + Tailwind + shadcn/ui + framer-motion + recharts + sonner
-  - Routes: `/login`, `/register`, `/` (dashboard or onboarding based on state), `/history`
-  - AuthContext with cookie + localStorage token
-  - AnimatedCounter with per-digit slide animation on change
+- **Backend**: FastAPI + MongoDB. Timezone-aware "today" via `X-Timezone` header.
+- **Frontend**: React + Tailwind + shadcn/ui + framer-motion + recharts + sonner + canvas-confetti.
 
-## Implemented (2026-07-15) ✅
-- Email + password registration + login with JWT cookies
-- Onboarding flow (initial backlog input)
-- Live counter dashboard with +/- Add/Done buttons and configurable amount step
-- Today's stats: Added, Done, Overall (with color-coded direction)
-- Current task inline editor (persists)
-- History page with line chart (backlog curve), bar chart (added vs done), full table
-- Motivational toasts on actions
-- Grain texture, glass header, tactile card slabs — "Midnight Library" aesthetic
-- Full end-to-end tested (backend + frontend, 100% pass)
+### Endpoints
+Auth: register/login/logout/me, forgot-password, reset-password.
+Core: /state, /onboard, /action (kind + amount + optional tag), /undo, /reset-today, /task, /day (edit past), /history, /history/csv, /summary/week, /tags/summary, /actions/recent.
+Settings: PATCH /settings (daily_goal, task_mode, timezone).
+Tasks: GET/POST/PATCH/DELETE /tasks.
+
+## Implemented
+
+### Phase 1 (2026-07-15) ✅
+- Auth (register/login), onboarding with initial count, dashboard with live counter + Add/Done, today's stats, current task inline editor, history page (line + bar charts + table), reset-today.
+
+### Phase 2 — 12 features (2026-07-15) ✅
+1. Keyboard shortcuts (A / D / U / R / 1–9 / ?)
+2. Undo last action (header button + toast action)
+3. Daily streak (fire badge) + goal progress ring
+4. Projected finish date pill (uses 7-day avg)
+5. Subject tagging on Done via a dialog + suggestion chips
+6. Edit past days in history (row hover → edit dialog)
+7. Confetti + milestone toast when counter crosses multiples of 25 downward
+8. Weekly recap card with 7-day heatmap
+9. CSV export of full history
+10. Multi-task checklist mode (toggleable in Settings)
+11. Timezone-aware "today" via `X-Timezone` header
+12. Password reset flow (dev returns link inline; ready for email service)
+
+**Testing**: 100% pass on backend (13/13 pytest) and frontend (12/12 E2E flows). No mocked APIs.
 
 ## User Personas
-- **The Backlog Owner**: single user (student) tracking their own lectures across devices, needs speed and emotional feedback.
+- **The Backlog Owner**: student tracking lectures across devices, prizes speed and emotional feedback.
 
-## Prioritized Backlog
+## Backlog
 
-### P1 (Next Enhancements)
-- Streak tracking (consecutive days with done>0)
-- Weekly/monthly aggregate stats + goals
-- Reset / manually edit a past day
-- Multiple tasks (checklist mode — user hinted this may come later)
+### P1
+- Email delivery for password reset (SendGrid/Resend)
+- Notifications / daily reminder
+- Subject presets managed by user (persistent tag list)
+- Bulk-import backlog from Unacademy calendar CSV
 
-### P2 (Nice-to-have)
-- Subject / category tagging per lecture batch
-- Notifications / daily reminder email
-- Export CSV of history
-- Undo last action
-- Dark/light theme toggle
-
-## Test Credentials
-See `/app/memory/test_credentials.md`.
+### P2
+- Multiple courses / boards (separate counters)
+- PWA install + offline queueing
+- Shareable public streak card
+- Weekly email digest
 
 ## Notes
-No mocked APIs — full backend integration in place.
+- Dashboard.jsx is ~590 lines — consider splitting into subcomponents in a future refactor.
+- Password reset currently returns the reset link inline (dev mode); wire up email delivery before production.
