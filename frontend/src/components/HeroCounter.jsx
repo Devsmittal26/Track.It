@@ -20,6 +20,26 @@ export default function HeroCounter({
     }
   }, [editing, counter]);
 
+  // Lock body scroll while editing the counter so scrolling stays put
+  useEffect(() => {
+    if (!editing) return undefined;
+    document.body.classList.add("editing-lock");
+    const stopWheel = (e) => e.preventDefault();
+    // Non-passive wheel/touchmove listener on the input so mouse-wheel doesn't propagate
+    const el = inputRef.current;
+    if (el) {
+      el.addEventListener("wheel", stopWheel, { passive: false });
+      el.addEventListener("touchmove", stopWheel, { passive: false });
+    }
+    return () => {
+      document.body.classList.remove("editing-lock");
+      if (el) {
+        el.removeEventListener("wheel", stopWheel);
+        el.removeEventListener("touchmove", stopWheel);
+      }
+    };
+  }, [editing]);
+
   const commit = async () => {
     const n = parseInt(draft, 10);
     if (Number.isNaN(n) || n < 0) { setEditing(false); return; }
@@ -42,11 +62,11 @@ export default function HeroCounter({
           <div className="flex items-center gap-4" data-testid="counter-edit-row">
             <Input
               ref={inputRef}
-              type="number"
-              min="0"
+              type="text"
               inputMode="numeric"
+              pattern="[0-9]*"
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, ""))}
               onKeyDown={(e) => {
                 if (e.key === "Enter") { e.preventDefault(); commit(); }
                 if (e.key === "Escape") { e.preventDefault(); setEditing(false); }
@@ -59,7 +79,7 @@ export default function HeroCounter({
                 onClick={commit}
                 data-testid="counter-edit-save"
                 aria-label="Save counter"
-                className="w-10 h-10 rounded-full bg-[hsl(var(--sage))] text-[#0D1410] flex items-center justify-center hover:bg-[hsl(var(--sage)/0.9)] transition-colors"
+                className="w-10 h-10 rounded-full bg-[hsl(var(--sage))] text-[hsl(var(--btn-done-fg))] flex items-center justify-center hover:bg-[hsl(var(--sage)/0.9)] transition-colors"
               >
                 <Check className="h-5 w-5" />
               </button>
@@ -119,11 +139,11 @@ export default function HeroCounter({
         </div>
         <div className="flex-1 grid grid-cols-2 gap-3">
           <Button data-testid="add-lecture-btn" disabled={busy} onClick={onAdd}
-            className="h-14 rounded-xl bg-[hsl(var(--terracotta))] text-[#1A0F0C] hover:bg-[hsl(var(--terracotta)/0.9)] transition-[background-color,transform] duration-200 hover:-translate-y-0.5 font-semibold text-base gap-2">
+            className="h-14 rounded-xl bg-[hsl(var(--terracotta))] text-[hsl(var(--btn-add-fg))] hover:bg-[hsl(var(--terracotta)/0.9)] transition-[background-color,transform] duration-200 hover:-translate-y-0.5 font-semibold text-base gap-2">
             <Plus className="h-5 w-5" /> Add <kbd className="hidden md:inline text-[10px] font-mono opacity-60 border border-black/20 rounded px-1">A</kbd>
           </Button>
           <Button data-testid="done-lecture-btn" disabled={busy} onClick={onDone}
-            className="h-14 rounded-xl bg-[hsl(var(--sage))] text-[#0D1410] hover:bg-[hsl(var(--sage)/0.9)] transition-[background-color,transform] duration-200 hover:-translate-y-0.5 font-semibold text-base gap-2">
+            className="h-14 rounded-xl bg-[hsl(var(--sage))] text-[hsl(var(--btn-done-fg))] hover:bg-[hsl(var(--sage)/0.9)] transition-[background-color,transform] duration-200 hover:-translate-y-0.5 font-semibold text-base gap-2">
             <Minus className="h-5 w-5" /> Done <kbd className="hidden md:inline text-[10px] font-mono opacity-60 border border-black/20 rounded px-1">D</kbd>
           </Button>
         </div>

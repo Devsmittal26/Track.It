@@ -7,6 +7,7 @@ import { Button } from "./ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Input } from "./ui/input";
 import PresetManager from "./PresetManager";
+import ThemePicker from "./ThemePicker";
 
 export default function DashboardHeader({ settings, onUpdateSettings, onUndo, onOpenShortcuts, onLogout, presets, onPresetsChange }) {
   const dailyGoal = settings?.daily_goal ?? 5;
@@ -64,6 +65,10 @@ export default function DashboardHeader({ settings, onUpdateSettings, onUndo, on
                   </div>
                   <PresetManager presets={presets} onChange={onPresetsChange} />
                 </div>
+                <ThemePicker
+                  value={settings?.theme || "midnight"}
+                  onChange={(t) => onUpdateSettings({ theme: t })}
+                />
                 <div>
                   <div className="font-heading text-xs uppercase tracking-[0.2em] text-muted-foreground mb-1">Timezone</div>
                   <div className="text-xs font-mono text-muted-foreground">{settings?.timezone}</div>

@@ -4,6 +4,13 @@ import { Toaster } from "sonner";
 import "@/App.css";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
+
+// Restore theme on first paint (before auth loads)
+try {
+  const t = localStorage.getItem("ubc_theme");
+  if (t) document.documentElement.dataset.theme = t;
+} catch (_) { /* ignore */ }
+
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import ForgotPassword from "@/pages/ForgotPassword";

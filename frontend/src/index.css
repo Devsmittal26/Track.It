@@ -11,9 +11,10 @@
 }
 
 html, body, #root {
-    background-color: #0A0B0E;
-    color: #F4F0EA;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
     min-height: 100vh;
+    transition: background-color 400ms ease, color 400ms ease;
 }
 
 body {
@@ -24,12 +25,17 @@ body {
     font-feature-settings: "ss01", "ss02";
 }
 
+body.editing-lock {
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
 @layer base {
-    :root {
-        /* UBC "Midnight Library" - dark by default */
-        --background: 225 15% 5%;         /* #0A0B0E */
-        --foreground: 36 33% 94%;         /* #F4F0EA */
-        --card: 225 14% 9%;               /* #121419 */
+    /* Default: Midnight Library */
+    :root, [data-theme="midnight"] {
+        --background: 225 15% 5%;          /* #0A0B0E */
+        --foreground: 36 33% 94%;          /* #F4F0EA */
+        --card: 225 14% 9%;                /* #121419 */
         --card-foreground: 36 33% 94%;
         --popover: 225 14% 9%;
         --popover-foreground: 36 33% 94%;
@@ -38,25 +44,110 @@ body {
         --secondary: 225 13% 13%;
         --secondary-foreground: 36 33% 94%;
         --muted: 225 13% 12%;
-        --muted-foreground: 222 10% 60%;   /* #8E94A3 */
+        --muted-foreground: 222 10% 60%;
         --accent: 225 13% 14%;
         --accent-foreground: 36 33% 94%;
-        --destructive: 12 51% 59%;         /* terracotta */
+        --destructive: 12 51% 59%;
         --destructive-foreground: 36 33% 94%;
-        --border: 225 14% 15%;             /* #22252D */
+        --border: 225 14% 15%;
         --input: 225 14% 15%;
         --ring: 36 33% 94%;
         --radius: 0.9rem;
 
-        /* UBC action colors */
         --sage: 138 14% 59%;               /* #88A090 */
         --terracotta: 12 51% 59%;          /* #C87462 */
+        --btn-add-fg: 12 60% 8%;
+        --btn-done-fg: 138 30% 6%;
 
         --chart-1: 138 14% 59%;
         --chart-2: 12 51% 59%;
         --chart-3: 36 33% 94%;
         --chart-4: 222 10% 60%;
         --chart-5: 45 40% 55%;
+    }
+
+    /* Warm Paper — light, cozy notebook feel */
+    [data-theme="paper"] {
+        --background: 40 40% 94%;          /* #F5F1EA */
+        --foreground: 30 8% 12%;           /* #1F1D19 */
+        --card: 40 45% 98%;                /* #FDFAF3 */
+        --card-foreground: 30 8% 12%;
+        --popover: 40 45% 98%;
+        --popover-foreground: 30 8% 12%;
+        --primary: 30 8% 12%;
+        --primary-foreground: 40 40% 94%;
+        --secondary: 38 25% 88%;
+        --secondary-foreground: 30 8% 12%;
+        --muted: 38 25% 90%;
+        --muted-foreground: 30 8% 40%;
+        --accent: 38 25% 88%;
+        --accent-foreground: 30 8% 12%;
+        --destructive: 12 55% 44%;
+        --destructive-foreground: 40 40% 94%;
+        --border: 38 20% 80%;
+        --input: 38 20% 80%;
+        --ring: 30 8% 12%;
+
+        --sage: 138 22% 34%;               /* deeper sage */
+        --terracotta: 12 55% 44%;          /* deeper rust */
+        --btn-add-fg: 40 40% 96%;
+        --btn-done-fg: 40 40% 96%;
+    }
+
+    /* Deep Ocean — dark navy with teal + amber */
+    [data-theme="ocean"] {
+        --background: 210 40% 6%;          /* #08111C */
+        --foreground: 200 30% 92%;         /* #E4EDF2 */
+        --card: 210 35% 10%;               /* #101E2E */
+        --card-foreground: 200 30% 92%;
+        --popover: 210 35% 10%;
+        --popover-foreground: 200 30% 92%;
+        --primary: 200 30% 92%;
+        --primary-foreground: 210 40% 6%;
+        --secondary: 210 30% 14%;
+        --secondary-foreground: 200 30% 92%;
+        --muted: 210 30% 13%;
+        --muted-foreground: 200 15% 65%;
+        --accent: 210 30% 14%;
+        --accent-foreground: 200 30% 92%;
+        --destructive: 25 80% 60%;
+        --destructive-foreground: 210 40% 6%;
+        --border: 210 30% 18%;
+        --input: 210 30% 18%;
+        --ring: 200 30% 92%;
+
+        --sage: 185 45% 52%;               /* teal */
+        --terracotta: 25 80% 60%;          /* amber */
+        --btn-add-fg: 25 60% 8%;
+        --btn-done-fg: 185 60% 6%;
+    }
+
+    /* Forest — deep green with gold + moss */
+    [data-theme="forest"] {
+        --background: 120 15% 6%;          /* #0D110D */
+        --foreground: 45 30% 92%;          /* #F1EBD9 */
+        --card: 120 12% 10%;               /* #161B16 */
+        --card-foreground: 45 30% 92%;
+        --popover: 120 12% 10%;
+        --popover-foreground: 45 30% 92%;
+        --primary: 45 30% 92%;
+        --primary-foreground: 120 15% 6%;
+        --secondary: 120 10% 14%;
+        --secondary-foreground: 45 30% 92%;
+        --muted: 120 10% 13%;
+        --muted-foreground: 45 10% 60%;
+        --accent: 120 10% 14%;
+        --accent-foreground: 45 30% 92%;
+        --destructive: 40 65% 55%;
+        --destructive-foreground: 120 15% 6%;
+        --border: 120 10% 18%;
+        --input: 120 10% 18%;
+        --ring: 45 30% 92%;
+
+        --sage: 100 25% 60%;               /* moss */
+        --terracotta: 40 65% 55%;          /* warm gold */
+        --btn-add-fg: 40 40% 8%;
+        --btn-done-fg: 100 30% 6%;
     }
 }
 
@@ -75,6 +166,7 @@ body {
     opacity: 0.06;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
+[data-theme="paper"] .grain::before { opacity: 0.10; mix-blend-mode: multiply; }
 
 .font-heading { font-family: var(--font-heading); }
 .font-body { font-family: var(--font-body); }
@@ -89,6 +181,11 @@ body {
     box-shadow:
         0 30px 60px -30px rgba(0,0,0,0.6),
         inset 0 1px 0 rgba(255,255,255,0.04);
+}
+[data-theme="paper"] .slab {
+    box-shadow:
+        0 20px 40px -25px rgba(31, 29, 25, 0.15),
+        inset 0 1px 0 rgba(255,255,255,0.5);
 }
 
 /* Task input - notebook line */
@@ -109,11 +206,20 @@ body {
 /* Utility: tabular numbers for the counter */
 .tabular-nums { font-variant-numeric: tabular-nums; }
 
-/* Hide scrollbars in some places */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
 ::selection {
     background: hsl(var(--sage) / 0.35);
     color: hsl(var(--foreground));
+}
+
+/* Hide number input spin buttons for cleaner UX (especially on the counter edit) */
+input[type="number"].no-spin::-webkit-outer-spin-button,
+input[type="number"].no-spin::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+input[type="number"].no-spin {
+    -moz-appearance: textfield;
 }

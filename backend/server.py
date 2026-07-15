@@ -210,6 +210,7 @@ class SettingsUpdate(BaseModel):
     daily_goal: Optional[int] = Field(default=None, ge=0)
     task_mode: Optional[str] = None  # 'single' or 'list'
     timezone: Optional[str] = None
+    theme: Optional[str] = None
 
 class ForgotPasswordIn(BaseModel):
     email: EmailStr
@@ -221,7 +222,7 @@ class ResetPasswordIn(BaseModel):
 # -----------------------------------------------------------------------------
 # State helpers
 # -----------------------------------------------------------------------------
-DEFAULT_SETTINGS = {"daily_goal": 5, "task_mode": "single", "timezone": "UTC"}
+DEFAULT_SETTINGS = {"daily_goal": 5, "task_mode": "single", "timezone": "UTC", "theme": "midnight"}
 
 async def get_or_create_day(user_id: str, date_str: str) -> dict:
     doc = await db.day_logs.find_one({"user_id": user_id, "date": date_str})
@@ -667,6 +668,11 @@ async def patch_settings(request: Request, payload: SettingsUpdate, user: dict =
             settings["timezone"] = payload.timezone
         except ZoneInfoNotFoundError:
             raise HTTPException(status_code=400, detail="Invalid timezone")
+    if payload.theme is not None:
+        allowed = {"midnight", "paper", "ocean", "forest"}
+        if payload.theme not in allowed:
+            raise HTTPException(status_code=400, detail=f"theme must be one of {sorted(allowed)}")
+        settings["theme"] = payload.theme
     await save_user_state(user["id"], {"settings": settings})
     return {"settings": settings}
 

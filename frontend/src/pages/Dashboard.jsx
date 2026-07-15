@@ -73,6 +73,13 @@ export default function Dashboard({ state, refresh }) {
 
   useEffect(() => { loadWeek(); loadPresets(); }, [loadWeek, loadPresets]);
 
+  // Apply theme to document + remember for future unauthenticated visits
+  useEffect(() => {
+    const theme = settings?.theme || "midnight";
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem("ubc_theme", theme); } catch (_) {}
+  }, [settings?.theme]);
+
   const showUndoToast = useCallback((message) => {
     toast(message, {
       description: "Click to undo",
@@ -151,9 +158,23 @@ export default function Dashboard({ state, refresh }) {
   };
 
   const setCounter = async (value) => {
+    const prev = state?.counter ?? 0;
+    if (value === prev) return;
     try {
       await api.post("/counter/set", { value });
-      toast("Counter updated");
+      toast(`Counter set to ${value}`, {
+        description: `Was ${prev} — click to undo`,
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              await api.post("/counter/set", { value: prev });
+              toast("Undone");
+              await refresh(); loadWeek();
+            } catch (_) { toast.error("Undo failed"); }
+          },
+        },
+      });
       await refresh(); loadWeek();
     } catch (_) { toast.error("Failed to update counter"); }
   };
