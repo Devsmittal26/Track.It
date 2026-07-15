@@ -227,6 +227,7 @@ export default function Dashboard({ state, refresh }) {
         onConfirm={(opts) => applyAction("done", opts)}
         defaultAmount={amount}
         presets={presets}
+        onPresetsChange={loadPresets}
       />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
