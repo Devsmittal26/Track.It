@@ -3,18 +3,24 @@ import axios from "axios";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 
+function detectTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch (_) {
+    return "UTC";
+  }
+}
+
 const api = axios.create({
   baseURL: API,
   withCredentials: true,
 });
 
-// Also attach Bearer token if present (fallback for cross-domain cookie issues)
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("ubc_token");
-  if (token) {
-    config.headers = config.headers || {};
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  config.headers = config.headers || {};
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  config.headers["X-Timezone"] = detectTimezone();
   return config;
 });
 

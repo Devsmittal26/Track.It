@@ -94,6 +94,10 @@ export default function Login() {
           <Link to="/register" data-testid="go-to-register-link" className="text-[hsl(var(--sage))] hover:underline underline-offset-4">
             Create an account
           </Link>
+          <span className="mx-2 opacity-40">·</span>
+          <Link to="/forgot-password" data-testid="forgot-password-link" className="text-muted-foreground hover:text-foreground underline-offset-4 hover:underline">
+            Forgot password?
+          </Link>
         </p>
       </div>
     </div>

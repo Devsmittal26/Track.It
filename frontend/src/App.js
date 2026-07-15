@@ -6,6 +6,8 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import Onboarding from "@/pages/Onboarding";
 import Dashboard from "@/pages/Dashboard";
 import History from "@/pages/History";
@@ -71,6 +73,8 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/history" element={<HistoryProtected />} />
             <Route path="/" element={<AppShell />} />
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -6,15 +6,20 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
+from fastapi.responses import PlainTextResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta, date
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
 import bcrypt
 import jwt
 import uuid
+import secrets
+import io
+import csv
 
 # -----------------------------------------------------------------------------
 # Setup
@@ -82,6 +87,21 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 # -----------------------------------------------------------------------------
+# Timezone helper — reads X-Timezone header; falls back to UTC
+# -----------------------------------------------------------------------------
+def get_tz(request: Request) -> ZoneInfo:
+    tz_name = request.headers.get("X-Timezone", "").strip()
+    if not tz_name:
+        return ZoneInfo("UTC")
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
+
+def today_str_tz(tz: ZoneInfo) -> str:
+    return datetime.now(tz).date().isoformat()
+
+# -----------------------------------------------------------------------------
 # Models
 # -----------------------------------------------------------------------------
 class RegisterIn(BaseModel):
@@ -104,15 +124,34 @@ class DayLogUpdate(BaseModel):
 class DayLogAction(BaseModel):
     kind: str  # 'add' or 'done'
     amount: int = Field(default=1, ge=1)
+    tag: Optional[str] = None  # subject tag
 
 class TaskIn(BaseModel):
     text: str
 
+class TaskItemIn(BaseModel):
+    text: str
+
+class TaskItemUpdate(BaseModel):
+    text: Optional[str] = None
+    done: Optional[bool] = None
+
+class SettingsUpdate(BaseModel):
+    daily_goal: Optional[int] = Field(default=None, ge=0)
+    task_mode: Optional[str] = None  # 'single' or 'list'
+    timezone: Optional[str] = None
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    password: str = Field(min_length=6)
+
 # -----------------------------------------------------------------------------
-# Helpers
+# State helpers
 # -----------------------------------------------------------------------------
-def today_str() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+DEFAULT_SETTINGS = {"daily_goal": 5, "task_mode": "single", "timezone": "UTC"}
 
 async def get_or_create_day(user_id: str, date_str: str) -> dict:
     doc = await db.day_logs.find_one({"user_id": user_id, "date": date_str})
@@ -138,15 +177,70 @@ async def get_user_state(user_id: str) -> dict:
             "counter": 0,
             "onboarded": False,
             "current_task": "",
+            "settings": DEFAULT_SETTINGS.copy(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         await db.user_state.insert_one(st.copy())
     st.pop("_id", None)
+    # ensure settings exists w/ all keys
+    settings = st.get("settings") or {}
+    for k, v in DEFAULT_SETTINGS.items():
+        settings.setdefault(k, v)
+    st["settings"] = settings
     return st
 
 async def save_user_state(user_id: str, updates: dict) -> None:
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.user_state.update_one({"user_id": user_id}, {"$set": updates}, upsert=True)
+
+async def compute_streak(user_id: str, today: str) -> int:
+    """Consecutive days ending today (or yesterday if today has no 'done') with done >= 1."""
+    # Fetch last ~60 days of logs
+    cursor = db.day_logs.find({"user_id": user_id}).sort("date", -1).limit(90)
+    logs = {}
+    async for d in cursor:
+        logs[d["date"]] = d.get("done", 0)
+    # Start from today; grace: if today has 0 done, start streak from yesterday
+    from datetime import date as _date
+    y, m, d = map(int, today.split("-"))
+    cur = _date(y, m, d)
+    if logs.get(today, 0) < 1:
+        cur = cur - timedelta(days=1)
+    streak = 0
+    while True:
+        key = cur.isoformat()
+        if logs.get(key, 0) >= 1:
+            streak += 1
+            cur = cur - timedelta(days=1)
+        else:
+            break
+    return streak
+
+async def week_summary(user_id: str, tz: ZoneInfo) -> dict:
+    """Mon..Sun containing today, in the user's timezone."""
+    today = datetime.now(tz).date()
+    monday = today - timedelta(days=today.weekday())
+    days = [(monday + timedelta(days=i)).isoformat() for i in range(7)]
+    cursor = db.day_logs.find({"user_id": user_id, "date": {"$in": days}})
+    added = 0
+    done = 0
+    best_done = 0
+    best_day = None
+    per_day = {d: {"added": 0, "done": 0} for d in days}
+    async for d in cursor:
+        a = d.get("added", 0); dn = d.get("done", 0)
+        added += a; done += dn
+        per_day[d["date"]] = {"added": a, "done": dn}
+        if dn > best_done:
+            best_done = dn; best_day = d["date"]
+    return {
+        "week_start": monday.isoformat(),
+        "added": added,
+        "done": done,
+        "best_day": best_day,
+        "best_done": best_done,
+        "per_day": [{"date": d, **per_day[d]} for d in days],
+    }
 
 # -----------------------------------------------------------------------------
 # Auth Routes
@@ -189,17 +283,79 @@ async def logout(response: Response):
 async def me(user: dict = Depends(get_current_user)):
     return {"id": user["id"], "email": user["email"], "name": user.get("name", "")}
 
+@api_router.post("/auth/forgot-password")
+async def forgot_password(payload: ForgotPasswordIn):
+    email = payload.email.lower().strip()
+    user = await db.users.find_one({"email": email})
+    # Always respond OK to avoid email enumeration
+    if user:
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        await db.password_reset_tokens.insert_one({
+            "token": token,
+            "user_id": user["id"],
+            "email": email,
+            "expires_at": expires_at,
+            "used": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        frontend = os.environ.get("FRONTEND_URL", "")
+        reset_link = f"{frontend}/reset-password?token={token}" if frontend else f"/reset-password?token={token}"
+        # Log for dev — in prod, send via email service
+        logging.getLogger(__name__).info(f"[UBC] Password reset link for {email}: {reset_link}")
+        return {"ok": True, "reset_link": reset_link, "message": "If an account exists, a reset link has been generated (see server logs)."}
+    return {"ok": True, "message": "If an account exists, a reset link has been generated."}
+
+@api_router.post("/auth/reset-password")
+async def reset_password(payload: ResetPasswordIn):
+    doc = await db.password_reset_tokens.find_one({"token": payload.token})
+    if not doc or doc.get("used"):
+        raise HTTPException(status_code=400, detail="Invalid or used reset token")
+    expires_at = doc["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(status_code=400, detail="Reset token has expired")
+    await db.users.update_one({"id": doc["user_id"]}, {"$set": {"password_hash": hash_password(payload.password)}})
+    await db.password_reset_tokens.update_one({"token": payload.token}, {"$set": {"used": True}})
+    return {"ok": True}
+
 # -----------------------------------------------------------------------------
-# UBC (Unacademy Backlog Counter) Routes
+# State / Actions
 # -----------------------------------------------------------------------------
 @api_router.get("/state")
-async def get_state(user: dict = Depends(get_current_user)):
+async def get_state(request: Request, user: dict = Depends(get_current_user)):
+    tz = get_tz(request)
+    today = today_str_tz(tz)
     st = await get_user_state(user["id"])
-    day = await get_or_create_day(user["id"], today_str())
+    day = await get_or_create_day(user["id"], today)
+    streak = await compute_streak(user["id"], today)
+
+    # avg done per day over last 7 days -> projected finish
+    seven_days_ago = (datetime.now(tz).date() - timedelta(days=7)).isoformat()
+    cursor = db.day_logs.find({"user_id": user["id"], "date": {"$gte": seven_days_ago}})
+    total_done_recent = 0
+    days_counted = 0
+    async for d in cursor:
+        total_done_recent += d.get("done", 0)
+        days_counted += 1
+    avg_done = (total_done_recent / days_counted) if days_counted > 0 else 0.0
+    projected_finish = None
+    if avg_done > 0 and st.get("counter", 0) > 0:
+        days_left = st.get("counter", 0) / avg_done
+        projected = datetime.now(tz).date() + timedelta(days=int(round(days_left)))
+        projected_finish = projected.isoformat()
+
     return {
         "counter": st.get("counter", 0),
         "onboarded": st.get("onboarded", False),
         "current_task": st.get("current_task", ""),
+        "settings": st.get("settings", DEFAULT_SETTINGS),
+        "streak": streak,
+        "avg_done_7d": round(avg_done, 2),
+        "projected_finish": projected_finish,
         "today": {
             "date": day["date"],
             "added": day.get("added", 0),
@@ -209,42 +365,128 @@ async def get_state(user: dict = Depends(get_current_user)):
     }
 
 @api_router.post("/onboard")
-async def onboard(payload: OnboardIn, user: dict = Depends(get_current_user)):
+async def onboard(request: Request, payload: OnboardIn, user: dict = Depends(get_current_user)):
+    tz = get_tz(request)
+    tz_name = str(tz)
+    st = await get_user_state(user["id"])
+    settings = st.get("settings", DEFAULT_SETTINGS.copy())
+    settings["timezone"] = tz_name
     await save_user_state(user["id"], {
         "counter": payload.initial_count,
         "onboarded": True,
+        "settings": settings,
     })
-    await get_or_create_day(user["id"], today_str())
-    return await get_state(user)
+    await get_or_create_day(user["id"], today_str_tz(tz))
+    return await get_state(request, user)
 
 @api_router.post("/action")
-async def apply_action(payload: DayLogAction, user: dict = Depends(get_current_user)):
+async def apply_action(request: Request, payload: DayLogAction, user: dict = Depends(get_current_user)):
     if payload.kind not in ("add", "done"):
         raise HTTPException(status_code=400, detail="Invalid action kind")
+    tz = get_tz(request)
+    today = today_str_tz(tz)
     st = await get_user_state(user["id"])
-    today = today_str()
     day = await get_or_create_day(user["id"], today)
 
     delta = payload.amount
     if payload.kind == "add":
         new_counter = st.get("counter", 0) + delta
-        new_added = day.get("added", 0) + delta
         await db.day_logs.update_one(
-            {"user_id": user["id"], "date": today}, {"$set": {"added": new_added}}
+            {"user_id": user["id"], "date": today},
+            {"$set": {"added": day.get("added", 0) + delta}},
         )
     else:  # done
         new_counter = max(0, st.get("counter", 0) - delta)
-        new_done = day.get("done", 0) + delta
         await db.day_logs.update_one(
-            {"user_id": user["id"], "date": today}, {"$set": {"done": new_done}}
+            {"user_id": user["id"], "date": today},
+            {"$set": {"done": day.get("done", 0) + delta}},
         )
     await save_user_state(user["id"], {"counter": new_counter})
-    return await get_state(user)
+
+    # Record individual action (for undo + tag analytics)
+    action_doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "date": today,
+        "kind": payload.kind,
+        "amount": delta,
+        "tag": (payload.tag or "").strip() or None,
+        "undone": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.actions.insert_one(action_doc)
+
+    milestone = None
+    if payload.kind == "done":
+        # Check milestone: counter crossed a multiple of 25 downward
+        prev = st.get("counter", 0)
+        crossed = (prev // 25) - (new_counter // 25)
+        if crossed >= 1 and new_counter <= prev:
+            milestone = int((prev // 25) * 25)
+        if new_counter == 0 and prev > 0:
+            milestone = 0
+
+    state = await get_state(request, user)
+    state["last_action_id"] = action_doc["id"]
+    state["milestone"] = milestone
+    return state
+
+@api_router.post("/undo")
+async def undo_last(request: Request, user: dict = Depends(get_current_user)):
+    tz = get_tz(request)
+    # Find most recent non-undone action
+    action = await db.actions.find_one(
+        {"user_id": user["id"], "undone": False},
+        sort=[("created_at", -1)],
+    )
+    if not action:
+        raise HTTPException(status_code=404, detail="Nothing to undo")
+    action.pop("_id", None)
+    # Reverse: subtract from day and counter appropriately
+    day_date = action["date"]
+    day = await get_or_create_day(user["id"], day_date)
+    st = await get_user_state(user["id"])
+    if action["kind"] == "add":
+        new_added = max(0, day.get("added", 0) - action["amount"])
+        await db.day_logs.update_one({"user_id": user["id"], "date": day_date}, {"$set": {"added": new_added}})
+        new_counter = max(0, st.get("counter", 0) - action["amount"])
+    else:  # done
+        new_done = max(0, day.get("done", 0) - action["amount"])
+        await db.day_logs.update_one({"user_id": user["id"], "date": day_date}, {"$set": {"done": new_done}})
+        new_counter = st.get("counter", 0) + action["amount"]
+    await save_user_state(user["id"], {"counter": new_counter})
+    await db.actions.update_one({"id": action["id"]}, {"$set": {"undone": True}})
+    state = await get_state(request, user)
+    state["undone_action"] = {"kind": action["kind"], "amount": action["amount"]}
+    return state
+
+@api_router.get("/actions/recent")
+async def recent_actions(user: dict = Depends(get_current_user), limit: int = 10):
+    cursor = db.actions.find({"user_id": user["id"], "undone": False}).sort("created_at", -1).limit(limit)
+    items = []
+    async for d in cursor:
+        d.pop("_id", None)
+        items.append(d)
+    return {"items": items}
+
+@api_router.get("/tags/summary")
+async def tags_summary(user: dict = Depends(get_current_user), days: int = 30):
+    tz = get_tz  # tz not used here; aggregate purely by date string
+    cutoff = (datetime.now(timezone.utc).date() - timedelta(days=days)).isoformat()
+    pipeline = [
+        {"$match": {"user_id": user["id"], "undone": False, "kind": "done", "date": {"$gte": cutoff}, "tag": {"$ne": None}}},
+        {"$group": {"_id": "$tag", "count": {"$sum": "$amount"}}},
+        {"$sort": {"count": -1}},
+    ]
+    result = []
+    async for d in db.actions.aggregate(pipeline):
+        result.append({"tag": d["_id"], "count": d["count"]})
+    return {"items": result}
 
 @api_router.post("/reset-today")
-async def reset_today(user: dict = Depends(get_current_user)):
-    """Reset today's added and done to 0, and revert the counter by today's net delta."""
-    today = today_str()
+async def reset_today(request: Request, user: dict = Depends(get_current_user)):
+    tz = get_tz(request)
+    today = today_str_tz(tz)
     day = await get_or_create_day(user["id"], today)
     net_delta = day.get("added", 0) - day.get("done", 0)
     st = await get_user_state(user["id"])
@@ -254,7 +496,12 @@ async def reset_today(user: dict = Depends(get_current_user)):
         {"$set": {"added": 0, "done": 0}},
     )
     await save_user_state(user["id"], {"counter": new_counter})
-    return await get_state(user)
+    # Also mark today's actions as undone (so they don't appear in undo/tags)
+    await db.actions.update_many(
+        {"user_id": user["id"], "date": today, "undone": False},
+        {"$set": {"undone": True}},
+    )
+    return await get_state(request, user)
 
 @api_router.post("/task")
 async def set_task(payload: TaskIn, user: dict = Depends(get_current_user)):
@@ -273,26 +520,31 @@ async def get_history(user: dict = Depends(get_current_user), days: int = 60):
             "done": d.get("done", 0),
             "overall": d.get("added", 0) - d.get("done", 0),
         })
-    # sort ascending for charts
     items_sorted = sorted(items, key=lambda x: x["date"])
-    # compute running counter series (based on current state)
     st = await get_user_state(user["id"])
-    current = st.get("counter", 0)
-    # walk backwards to get counter at each day end
+    running = st.get("counter", 0)
     counters_desc = []
-    running = current
     for it in reversed(items_sorted):
         counters_desc.append(running)
-        # to get counter *before* this day started, reverse today's delta
         running = running - (it["added"] - it["done"])
     counters = list(reversed(counters_desc))
     for i, it in enumerate(items_sorted):
         it["counter"] = counters[i]
-    return {"items": list(reversed(items_sorted))}  # return descending (recent first)
+    return {"items": list(reversed(items_sorted))}
+
+@api_router.get("/history/csv", response_class=PlainTextResponse)
+async def history_csv(user: dict = Depends(get_current_user)):
+    hist = await get_history(user, days=3650)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["date", "added", "done", "overall", "counter"])
+    for it in reversed(hist["items"]):  # ascending
+        writer.writerow([it["date"], it["added"], it["done"], it["overall"], it["counter"]])
+    return PlainTextResponse(content=output.getvalue(), media_type="text/csv",
+                             headers={"Content-Disposition": 'attachment; filename="ubc_history.csv"'})
 
 @api_router.post("/day")
-async def update_day(payload: DayLogUpdate, user: dict = Depends(get_current_user)):
-    """Manually edit a day's added/done (rare, for corrections)."""
+async def update_day(request: Request, payload: DayLogUpdate, user: dict = Depends(get_current_user)):
     day = await get_or_create_day(user["id"], payload.date)
     updates = {}
     if payload.added is not None:
@@ -301,7 +553,6 @@ async def update_day(payload: DayLogUpdate, user: dict = Depends(get_current_use
         updates["done"] = max(0, payload.done)
     if updates:
         await db.day_logs.update_one({"user_id": user["id"], "date": payload.date}, {"$set": updates})
-    # Recompute counter based on all days' deltas? Simpler: adjust counter by diff.
     old_delta = day.get("added", 0) - day.get("done", 0)
     new_added = updates.get("added", day.get("added", 0))
     new_done = updates.get("done", day.get("done", 0))
@@ -309,7 +560,84 @@ async def update_day(payload: DayLogUpdate, user: dict = Depends(get_current_use
     st = await get_user_state(user["id"])
     new_counter = max(0, st.get("counter", 0) + (new_delta - old_delta))
     await save_user_state(user["id"], {"counter": new_counter})
-    return await get_state(user)
+    return await get_state(request, user)
+
+@api_router.get("/summary/week")
+async def summary_week(request: Request, user: dict = Depends(get_current_user)):
+    tz = get_tz(request)
+    return await week_summary(user["id"], tz)
+
+# -----------------------------------------------------------------------------
+# Settings
+# -----------------------------------------------------------------------------
+@api_router.patch("/settings")
+async def patch_settings(request: Request, payload: SettingsUpdate, user: dict = Depends(get_current_user)):
+    st = await get_user_state(user["id"])
+    settings = st.get("settings", DEFAULT_SETTINGS.copy())
+    if payload.daily_goal is not None:
+        settings["daily_goal"] = payload.daily_goal
+    if payload.task_mode is not None:
+        if payload.task_mode not in ("single", "list"):
+            raise HTTPException(status_code=400, detail="task_mode must be 'single' or 'list'")
+        settings["task_mode"] = payload.task_mode
+    if payload.timezone is not None:
+        try:
+            ZoneInfo(payload.timezone)
+            settings["timezone"] = payload.timezone
+        except ZoneInfoNotFoundError:
+            raise HTTPException(status_code=400, detail="Invalid timezone")
+    await save_user_state(user["id"], {"settings": settings})
+    return {"settings": settings}
+
+# -----------------------------------------------------------------------------
+# Task list (multi-task mode)
+# -----------------------------------------------------------------------------
+@api_router.get("/tasks")
+async def list_tasks(user: dict = Depends(get_current_user)):
+    cursor = db.tasks.find({"user_id": user["id"]}).sort("created_at", 1)
+    items = []
+    async for d in cursor:
+        d.pop("_id", None)
+        items.append(d)
+    return {"items": items}
+
+@api_router.post("/tasks")
+async def create_task(payload: TaskItemIn, user: dict = Depends(get_current_user)):
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "text": payload.text.strip(),
+        "done": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if not doc["text"]:
+        raise HTTPException(status_code=400, detail="Task text is required")
+    await db.tasks.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+@api_router.patch("/tasks/{task_id}")
+async def update_task(task_id: str, payload: TaskItemUpdate, user: dict = Depends(get_current_user)):
+    updates = {}
+    if payload.text is not None:
+        updates["text"] = payload.text.strip()
+    if payload.done is not None:
+        updates["done"] = bool(payload.done)
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    res = await db.tasks.update_one({"id": task_id, "user_id": user["id"]}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task = await db.tasks.find_one({"id": task_id, "user_id": user["id"]})
+    task.pop("_id", None)
+    return task
+
+@api_router.delete("/tasks/{task_id}")
+async def delete_task(task_id: str, user: dict = Depends(get_current_user)):
+    res = await db.tasks.delete_one({"id": task_id, "user_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"ok": True}
 
 # -----------------------------------------------------------------------------
 # Health
@@ -340,6 +668,10 @@ async def on_startup():
     await db.users.create_index("email", unique=True)
     await db.day_logs.create_index([("user_id", 1), ("date", 1)], unique=True)
     await db.user_state.create_index("user_id", unique=True)
+    await db.actions.create_index([("user_id", 1), ("created_at", -1)])
+    await db.tasks.create_index([("user_id", 1), ("created_at", 1)])
+    await db.password_reset_tokens.create_index("token", unique=True)
+    await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
